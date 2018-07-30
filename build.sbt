@@ -30,6 +30,6 @@ scalacOptions ++= Seq(
 libraryDependencies ++= Seq(
   "org.apache.kafka" % "kafka-streams" % "1.1.0",
   "org.apache.kafka" % "kafka-clients" % "1.1.0",
-  // Testing
-  "net.manub" %% "scalatest-embedded-kafka" % "1.1.0-kafka1.1-nosr" % "test"
+  "com.lightbend" %% "kafka-streams-scala" % "0.2.1",
+  "net.manub" %% "scalatest-embedded-kafka" % "1.1.0-kafka1.1-nosr"
 )

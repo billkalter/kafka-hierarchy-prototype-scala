@@ -1,89 +1,83 @@
 package com.bazaarvoice.legion.hierarchy
 
+import com.bazaarvoice.legion.hierarchy.HierarchySerdes._
 import com.bazaarvoice.legion.hierarchy.model._
-import org.apache.kafka.common.serialization.Serdes
-import org.apache.kafka.common.utils.Bytes
-import org.apache.kafka.streams.kstream._
-import org.apache.kafka.streams.state.KeyValueStore
-import org.apache.kafka.streams.{Consumed, KeyValue, StreamsBuilder, Topology}
-
-import scala.collection.JavaConverters
+import com.lightbend.kafka.scala.streams.StreamsBuilderS
+import org.apache.kafka.streams.Topology
 
 object TopologyGenerator {
 
   def apply(config : HierarchyStreamConfig) : Topology = {
-    val builder = new StreamsBuilder
+    val builder = new StreamsBuilderS()
 
-    val sourceTable = builder.table(config.sourceTopic, Consumed.`with`(Serdes.String, Serdes.String))
-    val parentTransitionTable = builder.table(config.parentTransitionTopic, Consumed.`with`(Serdes.String, HierarchySerdes.ParentTransition))
-    val childTransitionStream = builder.stream(config.childTransitionTopic, Consumed.`with`(Serdes.String, HierarchySerdes.ChildTransition))
-    val parentChildrenTable = builder.table(config.parentChildrenTopic, Consumed.`with`(Serdes.String, HierarchySerdes.ChildIdSet))
-    val destTable = builder.table(config.destTopic, Consumed.`with`(Serdes.String, HierarchySerdes.Lineage))
+    val sourceTable = builder.table[String, String](config.sourceTopic)
+    val parentTransitionTable = builder.table[String, ParentTransition](config.parentTransitionTopic)
+    val childTransitionStream = builder.stream[String, ChildTransition](config.childTransitionTopic)
+    val parentChildrenTable = builder.table[String, ChildIdSet](config.parentChildrenTopic)
+    val destTable = builder.table[String, Lineage](config.destTopic)
 
     // Index 0 will contain all children which set themselves as their own parent
     // Index 1 will contain all otherwise valid child/parent relationships
-    val splitSources: Array[KStream[String, String]] = sourceTable.toStream.branch(
+    val splitSources = sourceTable.toStream.branch(
       (childId: String, parentId: String) => childId == parentId,
       (_, _) => true
     )
 
     // Children who are their own parents are immediately undefined
     splitSources(0)
-      .map((childId: String, _) => new KeyValue[String, Lineage](childId, Lineage(Reserved.UNDEFINED)))
-      .to(config.destTopic, Produced.`with`(Serdes.String, HierarchySerdes.Lineage))
+      .map((childId: String, _) => (childId, Lineage(Reserved.UNDEFINED)))
+      .to(config.destTopic)
 
     splitSources(1)
       .leftJoin(parentTransitionTable, (newParentId: String, priorTransition: ParentTransition) =>
-        ParentTransition(Option(priorTransition).map(t => t.newParentId).getOrElse(Reserved.UNDEFINED), newParentId))
+          ParentTransition(Option(priorTransition).map(t => t.newParentId).getOrElse(Reserved.UNDEFINED), newParentId))
       .filter((_, parentTransition: ParentTransition) => !parentTransition.isRedundant)
-      .to(config.parentTransitionTopic, Produced.`with`(Serdes.String, HierarchySerdes.ParentTransition))
+      .to(config.parentTransitionTopic)
 
     parentTransitionTable
       .toStream
       .flatMap((childId: String, parentTransition: ParentTransition) => {
-        JavaConverters asJavaIterable Seq(
-          new KeyValue(parentTransition.oldParentId, ChildTransition.remove(childId)),
-          new KeyValue(parentTransition.newParentId, ChildTransition.add(childId))
-        )
+        Seq(
+          (parentTransition.oldParentId, ChildTransition.remove(childId)),
+          (parentTransition.newParentId, ChildTransition.add(childId)))
       })
-      .to(config.childTransitionTopic, Produced.`with`(Serdes.String, HierarchySerdes.ChildTransition))
+      .to(config.childTransitionTopic)
 
     // Root parents
     childTransitionStream
       .filter((id: String, transition: ChildTransition) => id == Reserved.ROOT && transition.isAdd)
-      .map((_, transition: ChildTransition) => new KeyValue(transition.childId, Lineage.empty))
-      .to(config.destTopic, Produced.`with`(Serdes.String, HierarchySerdes.Lineage))
+      .map((_, transition: ChildTransition) => (transition.childId, Lineage.empty))
+      .to(config.destTopic)
 
     // Parents which don't yet exist
     childTransitionStream
-      .leftJoin(sourceTable, (childTransition: ChildTransition, maybeParent: String) => Option(maybeParent).isDefined)
+      .leftJoin(sourceTable, (_: ChildTransition, maybeParent: String) => Option(maybeParent).isDefined)
       .filter((id: String, exists: Boolean) => !exists && id != Reserved.ROOT)
-      .map((id: String, _) => new KeyValue(id, Lineage(Reserved.UNDEFINED)))
-      .to(config.destTopic, Produced.`with`(Serdes.String, HierarchySerdes.Lineage))
+      .map((id: String, _) => (id, Lineage(Reserved.UNDEFINED)))
+      .to(config.destTopic)
 
     childTransitionStream
-      .groupByKey(Serialized.`with`(Serdes.String, HierarchySerdes.ChildTransition))
+      .groupByKey
       .aggregate(
         () => ChildIdSet.empty,
-        (_, transition: ChildTransition, childIds: ChildIdSet) => childIds + transition,
-        Materialized.`with`[String, ChildIdSet, KeyValueStore[Bytes, Array[Byte]]](Serdes.String, HierarchySerdes.ChildIdSet)
-      )
+        (_: String, transition: ChildTransition, childIds: ChildIdSet) => childIds + transition)
       .toStream
-      .to(config.parentChildrenTopic, Produced.`with`(Serdes.String, HierarchySerdes.ChildIdSet))
+      .to(config.parentChildrenTopic)
 
     parentChildrenTable
       .join(destTable, (children: ChildIdSet, lineage: Lineage) => LineageTransition(lineage, children))
       .toStream
       .flatMap((id: String, transition: LineageTransition) => {
-        JavaConverters asJavaIterable (transition.parentLineage :+ id) {
+        val unsafeUpdatedLineage = transition.parentLineage :+ id
+        unsafeUpdatedLineage match {
             case None =>
               // Loop found in lineage.  Do not update, should probably log
-              Seq.empty[KeyValue[String, Lineage]]
+              Seq.empty
             case Some(updatedLineage : Lineage) =>
-              transition.children.map(childId => new KeyValue(childId, updatedLineage))
+              transition.children.map((childId : String) => (childId, updatedLineage))
           }
         })
-      .to(config.destTopic, Produced.`with`(Serdes.String, HierarchySerdes.Lineage))
+      .to(config.destTopic)
 
     builder.build
   }
