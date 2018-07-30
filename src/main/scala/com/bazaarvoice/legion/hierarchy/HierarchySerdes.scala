@@ -5,8 +5,10 @@ import java.util
 
 import com.bazaarvoice.legion.hierarchy.model._
 import org.apache.kafka.common.serialization.{Deserializer, Serde, Serdes, Serializer}
+import org.apache.kafka.common.utils.Bytes
 import org.apache.kafka.streams.Consumed
-import org.apache.kafka.streams.kstream.{Joined, Produced, Serialized}
+import org.apache.kafka.streams.kstream.{Joined, Materialized, Produced, Serialized}
+import org.apache.kafka.streams.state.KeyValueStore
 
 object HierarchySerdes {
 
@@ -51,19 +53,20 @@ object HierarchySerdes {
   implicit val lineageSerde : Serde[Lineage] = Serdes.serdeFrom( new ModelSerializer[Lineage](), new LineageDeserializer)
   implicit val lineageTransitionSerde : Serde[LineageTransition] = Serdes.serdeFrom( new ModelSerializer[LineageTransition](), new ModelDeserializer[LineageTransition])
 
-  implicit val stringStringConsumer : Consumed[String, String] = Consumed.`with`(Serdes.String, Serdes.String)
-  implicit val stringParentTransitionConsumed : Consumed[String, ParentTransition] = Consumed.`with`(Serdes.String, parentTransitionSerde)
-  implicit val stringChildTransitionConsumed : Consumed[String, ChildTransition] = Consumed.`with`(Serdes.String, childTransitionSerde)
-  implicit val stringChildIdSetConsumed : Consumed[String, ChildIdSet] = Consumed.`with`(Serdes.String, childIdSetSerde)
-  implicit val stringLineageConsumed : Consumed[String, Lineage] = Consumed.`with`(Serdes.String, lineageSerde)
+  implicit val consumedStringString : Consumed[String, String] = Consumed.`with`(Serdes.String, Serdes.String)
+  implicit val consumedStringParentTransition : Consumed[String, ParentTransition] = Consumed.`with`(Serdes.String, parentTransitionSerde)
+  implicit val consumedStringChildTransition : Consumed[String, ChildTransition] = Consumed.`with`(Serdes.String, childTransitionSerde)
+  implicit val consumedStringChildIdSet : Consumed[String, ChildIdSet] = Consumed.`with`(Serdes.String, childIdSetSerde)
+  implicit val consumedStringLineage : Consumed[String, Lineage] = Consumed.`with`(Serdes.String, lineageSerde)
 
-  implicit val stringParentTransitionProduced : Produced[String, ParentTransition] = Produced.`with`(Serdes.String, parentTransitionSerde)
-  implicit val stringChildTransitionProduced : Produced[String, ChildTransition] = Produced.`with`(Serdes.String, childTransitionSerde)
-  implicit val stringChildIdSetProduced : Produced[String, ChildIdSet] = Produced.`with`(Serdes.String, childIdSetSerde)
-  implicit val stringLineageProduced : Produced[String, Lineage] = Produced.`with`(Serdes.String, lineageSerde)
+  implicit val producedStringParentTransition : Produced[String, ParentTransition] = Produced.`with`(Serdes.String, parentTransitionSerde)
+  implicit val producedStringChildTransition : Produced[String, ChildTransition] = Produced.`with`(Serdes.String, childTransitionSerde)
+  implicit val producedStringChildIdSet : Produced[String, ChildIdSet] = Produced.`with`(Serdes.String, childIdSetSerde)
+  implicit val producedStringLineage : Produced[String, Lineage] = Produced.`with`(Serdes.String, lineageSerde)
 
-  implicit val stringStringParentTransitionJoined : Joined[String, String, ParentTransition] = Joined.`with`(Serdes.String, Serdes.String, parentTransitionSerde)
-  implicit val stringChildTransitionStringJoined : Joined[String, ChildTransition, String] = Joined.`with`(Serdes.String, childTransitionSerde, Serdes.String)
+  implicit val joinedStringStringParentTransition : Joined[String, String, ParentTransition] = Joined.`with`(Serdes.String, Serdes.String, parentTransitionSerde)
+  implicit val joinedStringChildTransitionString : Joined[String, ChildTransition, String] = Joined.`with`(Serdes.String, childTransitionSerde, Serdes.String)
 
   implicit val stringChildTransitionSerialized : Serialized[String, ChildTransition] = Serialized.`with`(Serdes.String, childTransitionSerde)
+  implicit val materializedParentChildren : Materialized[String, ChildIdSet, KeyValueStore[Bytes, Array[Byte]]] = Materialized.`with`(Serdes.String, childIdSetSerde)
 }

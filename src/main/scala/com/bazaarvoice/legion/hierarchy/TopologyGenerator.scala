@@ -52,7 +52,7 @@ object TopologyGenerator {
     // Parents which don't yet exist
     childTransitionStream
       .leftJoin(sourceTable, (_: ChildTransition, maybeParent: String) => Option(maybeParent).isDefined)
-      .filter((id: String, exists: Boolean) => !exists && id != Reserved.ROOT)
+      .filter((id: String, exists: Boolean) => !exists && !(Reserved isReserved id))
       .map((id: String, _) => (id, Lineage(Reserved.UNDEFINED)))
       .to(config.destTopic)
 
@@ -60,7 +60,8 @@ object TopologyGenerator {
       .groupByKey
       .aggregate(
         () => ChildIdSet.empty,
-        (_: String, transition: ChildTransition, childIds: ChildIdSet) => childIds + transition)
+        (_: String, transition: ChildTransition, childIds: ChildIdSet) => childIds + transition,
+        materializedParentChildren)
       .toStream
       .to(config.parentChildrenTopic)
 
