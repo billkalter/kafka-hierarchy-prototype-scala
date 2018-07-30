@@ -4,8 +4,11 @@ import com.bazaarvoice.legion.hierarchy.HierarchySerdes._
 import com.bazaarvoice.legion.hierarchy.model._
 import com.lightbend.kafka.scala.streams.StreamsBuilderS
 import org.apache.kafka.streams.Topology
+import org.slf4j.{Logger, LoggerFactory}
 
 object TopologyGenerator {
+
+  val _log : Logger = LoggerFactory.getLogger(TopologyGenerator.getClass)
 
   def apply(config : HierarchyStreamConfig) : Topology = {
     val builder = new StreamsBuilderS()
@@ -25,7 +28,10 @@ object TopologyGenerator {
 
     // Children who are their own parents are immediately undefined
     splitSources(0)
-      .map((childId: String, _) => (childId, Lineage(Reserved.UNDEFINED)))
+      .map((childId: String, _) => {
+        _log.warn("Rejected ID with itself as parent: {}", childId)
+        (childId, Lineage(Reserved.UNDEFINED))
+      })
       .to(config.destTopic)
 
     splitSources(1)
@@ -72,7 +78,7 @@ object TopologyGenerator {
         val unsafeUpdatedLineage = transition.parentLineage :+ id
         unsafeUpdatedLineage match {
             case None =>
-              // Loop found in lineage.  Do not update, should probably log
+              _log.warn("Rejected update which creates a lineage cycle for {}", id)
               Seq.empty
             case Some(updatedLineage : Lineage) =>
               transition.children.map((childId : String) => (childId, updatedLineage))

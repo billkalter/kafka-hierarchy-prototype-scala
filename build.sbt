@@ -32,6 +32,7 @@ libraryDependencies ++= Seq(
   "org.apache.kafka" % "kafka-clients" % "1.1.0",
   "com.lightbend" %% "kafka-streams-scala" % "0.2.1",
   "net.manub" %% "scalatest-embedded-kafka" % "1.1.0-kafka1.1-nosr",
+  "log4j" % "log4j" % "1.2.17",
   "ch.qos.logback" % "logback-classic" % "1.2.3",
   "org.slf4j" % "slf4j-log4j12" % "1.7.25"
 )
