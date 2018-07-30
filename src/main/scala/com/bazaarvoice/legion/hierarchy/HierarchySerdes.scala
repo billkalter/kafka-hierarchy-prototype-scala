@@ -66,6 +66,7 @@ object HierarchySerdes {
 
   implicit val joinedStringStringParentTransition : Joined[String, String, ParentTransition] = Joined.`with`(Serdes.String, Serdes.String, parentTransitionSerde)
   implicit val joinedStringChildTransitionString : Joined[String, ChildTransition, String] = Joined.`with`(Serdes.String, childTransitionSerde, Serdes.String)
+  implicit val joinedStringLineageLineage : Joined[String, Lineage, Lineage] = Joined.`with`(Serdes.String, lineageSerde, lineageSerde)
 
   implicit val stringChildTransitionSerialized : Serialized[String, ChildTransition] = Serialized.`with`(Serdes.String, childTransitionSerde)
   implicit val materializedParentChildren : Materialized[String, ChildIdSet, KeyValueStore[Bytes, Array[Byte]]] = Materialized.`with`(Serdes.String, childIdSetSerde)

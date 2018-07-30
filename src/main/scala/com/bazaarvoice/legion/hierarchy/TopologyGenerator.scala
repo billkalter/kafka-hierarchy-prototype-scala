@@ -84,6 +84,10 @@ object TopologyGenerator {
               transition.children.map((childId : String) => (childId, updatedLineage))
           }
         })
+      // Filter out updates which don't change the child's lineage at the destination
+      .leftJoin(destTable, (newLineage: Lineage, oldLineage: Lineage) => if (oldLineage != newLineage) Option(newLineage) else Option.empty)
+      .filter((_: String, lineage: Option[Lineage]) => lineage.isDefined)
+      .map((id: String, lineage: Option[Lineage]) => (id, lineage.get))
       .to(config.destTopic)
 
     builder.build
